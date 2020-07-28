@@ -1,6 +1,7 @@
 # my-first-app
 
 > A GitHub App built with [Probot](https://github.com/probot/probot) that A Probot app
+> [Tutorial](https://bdougie.github.io/sls-probot-guide/#create-the-github-app)
 
 ## Setup
 
@@ -12,12 +13,10 @@ npm install
 npm start
 ```
 
-## Contributing
+This app is connected to the github app: sis-response-bot, via APP_ID and WEBHOOK_SECRET
 
-If you have suggestions for how my-first-app could be improved, or want to report a bug, open an issue! We'd love all and any contributions.
+When a webhook is triggered it will deliver details to this url: https://smee.io/7xsGYn3lfhMtCxuu
 
-For more, check out the [Contributing Guide](CONTRIBUTING.md).
+It has access (read/write) to the `issues` event, and adds a simple message when a issue is created.
 
-## License
-
-[ISC](LICENSE) © 2020 Jon Price <jon.price77@gmail.com>
+This github app is installed on this repo: https://github.com/informa/test-repository
