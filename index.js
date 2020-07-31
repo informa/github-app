@@ -23,68 +23,63 @@ module.exports = (robot) => {
     // console.log("REPO: ", repo, "OWNER: ", owner);
 
     // Get sha from the default branch and run get files
-    // context.github.repos
-    //   .getBranch({
-    //     owner,
-    //     repo,
-    //     branch: default_branch,
-    //   })
-    //   .then((result) => {
-    //     const sha = result.data.commit.sha;
 
-    //     getfiles(sha);
-    //   });
+    const getShaFromMasterBranch = () => {
+      return context.github.repos
+        .getBranch({
+          owner,
+          repo,
+          branch: default_branch,
+        })
+        .then((result) => {
+          const sha = result.data.commit.sha;
+          console.log("Sha: ", sha);
+        })
+        .catch((error) => {
+          console.log("Get Sha error: ", error);
+        });
+    };
 
-    // const addPathToArray = (path) => {
-    //   files.push(path);
-    // };
+    const addPathToArray = (path) => {
+      files.push(path);
+    };
 
     // Get files
-    // const getfiles = (sha) => {
-    //   context.github.git
-    //     .getTree({
-    //       owner,
-    //       repo,
-    //       tree_sha: sha,
-    //     })
-    //     .then((tree) => {
-    //       tree.data.tree.map((branch) => {
-    //         const { path, type, sha } = branch;
-    //         if (type === "blob" && path.includes('.js')) {
-    //           addPathToArray(path);
-    //         }
-    //         if (type === "tree") {
-    //           getfiles(sha);
-    //         }
-    //       });
-    //     })
-    //     .catch((error) => {
-    //       console.error("ERROR: ", error);
-    //     })
-    //     .finally(() => {
-    //       console.log("FILES: ", files);
-    //     });
-    // };
+    const getfiles = (sha) => {
+      context.github.git
+        .getTree({
+          owner,
+          repo,
+          tree_sha: sha,
+        })
+        .then((tree) => {
+          tree.data.tree.map((branch) => {
+            const { path, type, sha } = branch;
+            if (type === "blob" && path.includes(".js")) {
+              addPathToArray(path);
+            }
+            if (type === "tree") {
+              getfiles(sha);
+            }
+          });
+        })
+        .catch((error) => {
+          console.error("ERROR: ", error);
+        })
+        .finally(() => {
+          console.log("FILES: ", files);
+        });
+    };
 
-    // Get the package.json and console the react version
-    // context.github.repos
-    //   .getContents({
-    //     owner,
-    //     repo,
-    //     path: "package.json",
-    //   })
-    //   .then((result) => {
-    //     // content will be base64 encoded
-    //     const content = Buffer.from(result.data.content, "base64").toString();
+    const reactVersion = (result) => {
+      const content = Buffer.from(result.data.content, "base64").toString();
 
-    //     const removeQuotes = content.replace(/"/g, "");
-    //     const reactVersion = removeQuotes
-    //       .split("\n")
-    //       .filter((item) => item.includes("react:"))
-    //       .map((item) => item.trim());
+      const toJSON = JSON.parse(content);
 
-    //     console.log(reactVersion);
-    //   });
+      const reactVersion = toJSON.dependencies.react;
+
+      return reactVersion ? reactVersion : false;
+    };
 
     // Workflow
     // 1. does repo have package.json ?
@@ -97,13 +92,22 @@ module.exports = (robot) => {
           path: "package.json",
         })
         .then((result) => {
-          console.log(result && "YES", repo);
-        }).catch((error) => {
+          console.log("YES Package.json", repo);
+
+          // 2. does package.json have react ? react version
+          const hasReact = reactVersion(result);
+
+          if (hasReact) {
+            // 3. look for files (js,jsx) don't look in folder like (public,test) - list of filename
+            console.log("HAS REACT!!", hasReact);
+
+            getShaFromMasterBranch();
+          }
+        })
+        .catch((error) => {
           console.log("NO Package.json", repo);
         });
     }
-    // 2. does package.json have react ? react version
-    // 3. look for files (js,jsx) don't look in folder like (public,test) - list of filename
     // 4. loop over files and look and the contents of the the file.
   });
   // For more information on building apps:
