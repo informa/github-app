@@ -4,111 +4,97 @@ const createScheduler = require("probot-scheduler");
  * This is the main entrypoint to your Probot app
  * @param {import('probot').Application} app
  */
-module.exports = (robot) => {
-  // Your code here
-
-  createScheduler(robot, {
+module.exports = (app) => {
+  createScheduler(app, {
     interval: 30000,
   });
-  robot.on("schedule.repository", (context) => {
-    const repo = context.payload.repository.name;
-    const owner = context.payload.repository.owner.login;
-    // master
-    const default_branch = context.payload.repository.default_branch;
+
+  app.on("schedule.repository", async (context) => {
     const fork = context.payload.repository.fork;
     const private = context.payload.repository.private;
 
-    let files = [];
+    // 1. Don't do anything if repo is a fork or private
+    if (fork || private) {
+      return;
+    }
 
-    // console.log("REPO: ", repo, "OWNER: ", owner);
+    // Get credentials
+    const login = context.payload.repository.owner.login;
+    const repoName = context.payload.repository.name;
 
-    // Get sha from the default branch and run get files
-
-    const getShaFromMasterBranch = () => {
-      return context.github.repos
-        .getBranch({
-          owner,
-          repo,
-          branch: default_branch,
-        })
-        .then((result) => {
-          const sha = result.data.commit.sha;
-          console.log("Sha: ", sha);
-        })
-        .catch((error) => {
-          console.log("Get Sha error: ", error);
-        });
-    };
-
-    const addPathToArray = (path) => {
-      files.push(path);
-    };
-
-    // Get files
-    const getfiles = (sha) => {
-      context.github.git
-        .getTree({
-          owner,
-          repo,
-          tree_sha: sha,
-        })
-        .then((tree) => {
-          tree.data.tree.map((branch) => {
-            const { path, type, sha } = branch;
-            if (type === "blob" && path.includes(".js")) {
-              addPathToArray(path);
-            }
-            if (type === "tree") {
-              getfiles(sha);
-            }
-          });
-        })
-        .catch((error) => {
-          console.error("ERROR: ", error);
-        })
-        .finally(() => {
-          console.log("FILES: ", files);
-        });
-    };
-
-    const reactVersion = (result) => {
-      const content = Buffer.from(result.data.content, "base64").toString();
-
+    // 2. Does repo have package.json
+    try {
+      const packageJSON = await context.github.request(
+        `GET /repos/${login}/${repoName}/contents/package.json`
+      );
+      const content = Buffer.from(
+        packageJSON.data.content,
+        "base64"
+      ).toString();
       const toJSON = JSON.parse(content);
 
+      // 3. look for react (would normally look for myob-widgets) is installed
       const reactVersion = toJSON.dependencies.react;
 
-      return reactVersion ? reactVersion : false;
-    };
-
-    // Workflow
-    // 1. does repo have package.json ?
-    if (!fork && !private) {
-      // console.log(repo);
-      context.github.repos
-        .getContents({
-          owner,
-          repo,
-          path: "package.json",
-        })
-        .then((result) => {
-          console.log("YES Package.json", repo);
-
-          // 2. does package.json have react ? react version
-          const hasReact = reactVersion(result);
-
-          if (hasReact) {
-            // 3. look for files (js,jsx) don't look in folder like (public,test) - list of filename
-            console.log("HAS REACT!!", hasReact);
-
-            getShaFromMasterBranch();
-          }
-        })
-        .catch((error) => {
-          console.log("NO Package.json", repo);
-        });
+      if (!reactVersion) {
+        console.log("NO REACT: don't scan", repoName);
+        return;
+      } else {
+        console.log("REACT: ", reactVersion, repoName);
+      }
+    } catch (e) {
+      console.log("NO PACKAGE.json: don't scan", repoName);
+      return;
     }
-    // 4. loop over files and look and the contents of the the file.
+
+    // 4. As react (myob-widgets) is installed we want to get the files react (myob-widgts) is included
+    // First we need to get the Get Branch as to get the sha
+    const defaultBranch = context.payload.repository.default_branch;
+
+    const branch = await context.github.request(
+      `GET /repos/${login}/${repoName}/branches/${defaultBranch}`
+    );
+
+    // Get tree: A Git tree object creates the hierarchy between files in a Git repository
+    // https://developer.github.com/v3/git/trees/
+    const readRepo = async ({ login, repoName, sha }) =>
+      await context.github.request(
+        `GET /repos/${login}/${repoName}/git/trees/${sha}`
+      );
+
+    const readFiles = (files, path) =>
+      files.data.tree.forEach(async (file) => {
+        if (file.type === "blob" && file.path.match(/^.*\.(js|jsx|ts)$/)) {
+          // 5. If the file (blob) is a js,jsx,ts file then we need to see if if contains react (myob-widgets)
+          await context.github.request(
+            `GET /repos/${login}/${repoName}/contents/${path.join("/")}/${
+              file.path
+            }`
+          );
+          console.log("FILENAME: ", `${path.join("/")}/${file.path}`, repoName);
+        }
+
+        // If the file is a directory (tree) then we need to send another request
+        // But if the directory is test then don't bother
+        if (file.type === "tree" && file.path.indexOf("test") < 0) {
+          const filesInTree = await readRepo({
+            login,
+            repoName,
+            sha: file.sha,
+          });
+
+          readFiles(filesInTree, path.concat([file.path]));
+        }
+      });
+
+    readFiles(
+      await readRepo({
+        login,
+        repoName,
+        sha: branch.data.commit.sha,
+      }),
+      []
+    );
   });
   // For more information on building apps:
   // https://probot.github.io/docs/
